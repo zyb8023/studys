@@ -1,88 +1,127 @@
+// 先定义三个常量表示状态
+const PENDING = 'pending';
+const FULFILLED = 'fulfilled';
+const REJECTED = 'rejected';
 class MyPromise {
+  status = PENDING;
+  value = null;
+  reason = null;
+  onFulfilledCallbacks = []; // 存储成功回调函数
+  onRejectedCallbacks = [];   // 存储失败回调函数
   constructor (executor) {
-    const _this = this;
-    _this.status = 'pending'; // promise状态 pending 、fulfilled 、rejected
-    _this.data = undefined; // promise的值
-    _this.onResolvedCallback = []; // Promise resolve时的回调函数集，因为在Promise结束之前有可能有多个回调添加到它上面
-    _this.onRejectedCallback = [];
-    function resolve (value) {
-      if (_this.status === 'pending') {
-        _this.status = 'fulfilled';
-        _this.data = value;
-        _this.onResolvedCallback.forEach(fn => fn(value));
-      }
-    }
-    function reject (reason) {
-      if (_this.status === 'pending') {
-        _this.status = 'rejected';
-        _this.data = reason;
-        _this.onRejectedCallback.forEach(fn => fn(reason));
-      }
-    }
     try {
-      executor(resolve, reject);
+      executor(this.resolve.bind(this), this.reject.bind(this));
     } catch (error) {
-      reject(error);
+      this.status = REJECTED;
+      this.reject(error);
     }
   }
 
-  then (onResolve, onReject) {
-    const _this = this;
+  resolve (value) {
+    // 只有状态是等待，才执行状态修改
+    if (value instanceof MyPromise) {
+      value.then(resolve, reject);
+      return;
+    }
+    // resolve被放入微任务队列中，同步代码执行完毕之后才会进入微任务队列执行。
+    queueMicrotask(() => {
+      if(this.status === PENDING) {
+        this.status = FULFILLED;
+        this.value = value;
+        this.onFulfilledCallbacks.forEach(fn => fn(value))
+      }
+    })
+  }
+
+  reject (reason) {
+    // 只有状态是等待，才执行状态修改
+    queueMicrotask(() => {
+      if(this.status === PENDING) {
+        this.status = REJECTED;
+        this.reason = reason;
+        this.onRejectedCallbacks.forEach(fn => fn(reason))
+      }
+    })
+  }
+
+
+  // 让then方法异步执行 也就是确保onFulfilled/onRejected异步执行
+  then (onFulfilled, onRejected) {
     let promise2 = null;
-    // 根据promise A+标准，then的参数不是function ,会被忽略
-    onResolve = typeof onResolve === 'function' ? onResolve : (value) => {};
-    onReject = typeof onReject === 'function' ? onReject : (reason) => {};
-    // 每个Promise对象都可以在其上多次调用then方法，而每次调用then返回的Promise的状态取决于那一次调用then时传入参数的返回值
+    // 根据promise A+ 规范，then的参数不是function， 忽略
+    // then 的参数 值的穿透
+    // p1.then((value) => { // 此时p1.status 由pending状态 => fulfilled状态
+    //   console.log(value); // resolve
+    //   // console.log(p1.status); // fulfilled
+    //   p1.then(value => { // 再次p1.then 这时已经为fulfilled状态 走的是fulfilled状态判断里的逻辑 所以我们也要确保判断里面onFuilled异步执行
+    //       console.log(value); // 'resolve'
+    //   });
+    //     console.log('4444444');
+    // })
+    // console.log('333333');
+
+    onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : value => value;
+    onRejected = typeof onRejected === 'function' ? onRejected : reason => {throw reason}
     promise2 = new MyPromise((resolve, reject) => {
-      if (_this.status === 'pending') {
-        _this.onResolvedCallback.push((value) => {
+      if (this.status === FULFILLED) {
+        queueMicrotask(() => {
           try {
-            const x = onResolve(_this.data);
-            if (x instanceof MyPromise) x.then(resolve, reject);
-            else resolve(x);
-          } catch (error) {
-            reject(error);
-          }
-        });
-        _this.onRejectedCallback.push((value) => {
-          try {
-            const x = onReject(_this.data);
-            if (x instanceof MyPromise) x.then(resolve, reject);
-            else resolve(x);
+            const x = onFulfilled(this.value);
+            this.resolvePromise(promise2, x, resolve, reject); 
           } catch (error) {
             reject(error);
           }
         });
       }
-      // 如果promise1(此处即为_this)的状态已经确定并且是fulfilled，我们调用onResolved
-      if (_this.status === 'fulfilled') {
-        try {
-          const x = onResolve(_this.data);
-          if (x instanceof MyPromise) x.then(resolve, reject);
-        } catch (error) {
-          reject(error);
-        }
+      if (this.status === REJECTED) {
+        queueMicrotask(() => {
+          try {
+            const x = onRejected(this.reason);
+            this.resolvePromise(promise2, x, resolve, reject) 
+          } catch (error) {
+            reject(error);
+          }
+        });
       }
-      if (_this.status === 'rejected') {
-        try {
-          const x = onReject(_this.data);
-          if (x instanceof MyPromise) x.then(resolve, reject);
-        } catch (error) {
-          reject(error);
-        }
+      if (this.status === PENDING) {
+        this.onFulfilledCallbacks.push((value) => {
+          try {
+            const x = onFulfilled(value);
+            this.resolvePromise(x, resolve, reject) 
+          } catch (error) {
+            reject(error);
+          }
+        });
+        this.onRejectedCallbacks.push((reason) => {
+          try {
+            const x = onRejected(reason);
+            this.resolvePromise(x, resolve, reject); 
+          } catch (error) {
+            reject(error);
+          }
+        });
       }
     });
     return promise2;
   }
+
+  resolvePromise(promise2, x, resolve, reject) {
+    // 循环调用
+    if (promise2 === x) {
+      reject(new TypeError('Chaining cycle detected for promise!'))
+      return
+    }
+    // 判断x是不是 MyPromise 实例对象
+    if(x instanceof MyPromise) {
+      // 执行 x，调用 then 方法，目的是将其状态变为 fulfilled 或者 rejected
+      // x.then(value => resolve(value), reason => reject(reason))
+      // 简化之后
+      x.then(resolve, reject)
+    } else{
+      // 普通值
+      resolve(x)
+    }
+  }
 }
 
-const p = new MyPromise((resolve, reject) => {
-  setTimeout(() => {
-    return resolve('ok');
-  }, 2000);
-});
-
-p.then(res => {
-  console.log(res);
-  return res;
-}, err => console.log(err)).then(res => console.log(res, '------res23'));
+module.exports = MyPromise;
