@@ -1,0 +1,120 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>楼梯间效果</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+ 
+        .part {
+            height: 400px;
+        }
+ 
+        .part1 {
+            background: pink;
+            height: 500px;
+        }
+ 
+        .part2 {
+            background: hotpink;
+            height: 800px;
+        }
+ 
+        .part3 {
+            background: plum;
+        }
+ 
+        .part4 {
+            background: hotpink;
+        }
+ 
+        .sidenav {
+            width: 50px;
+            height: 60px;
+            position: fixed;
+            top: 100px;
+            right: 0px;
+        }
+ 
+        .sidenav-list li {
+            list-style: none;
+        }
+ 
+        .curr {
+            background: #e4393c;
+        }
+        .container{
+            height: 1900px;
+        }
+    </style>
+    <script src="https://cdn.staticfile.org/jquery/3.4.0/jquery.js"></script>
+</head>
+<body>
+<div class="container">
+    <div class="part1 part"></div>
+    <div class="part2 part"></div>
+    <div class="part3 part"></div>
+    <div class="part4 part"></div>
+</div>
+ 
+ 
+<div class="sidenav">
+    <div class="sidenav-list">
+        <li>1</li>
+        <li>2</li>
+        <li>3</li>
+        <li>4</li>
+    </div>
+</div>
+<script>
+    var Page = (function () {
+        //pos存放的是模块document对象
+        var pos = [$('.part1'), $('.part2'), $('.part3'), $('.part4')],
+            nav = $('.sidenav-list li'),
+            css = 'curr';
+        //1、页面的page标识
+        //2、侧边栏的点击目标
+        //3、点击的css效果class
+        for (var i in pos) {
+            //枚举pos的对象，对每个对象的相对文档顶部偏移量设置，避免因为导航的高度而遮挡(比如下面的10),或者模板滚到了，但是导航条没到点
+            pos[i] = pos[i].offset().top-300;
+ 
+        }
+ 
+        $(window).on('scroll', function () {
+            // 获取滚动条向上滚动的距离(初始为0)
+            //scrollTop:设置或获取位于对象最顶端和窗口中可见内容的最顶端之间的距离
+            var t = $(this).scrollTop();
+            // 移除样式
+            nav.removeClass('curr');
+            if (t > pos[pos.length - 1]) {
+                //滚动到底部时候t大于减去4*200px的offset().top的高度
+                //最后一个导航加上背景
+                nav.eq(pos.length - 1).addClass(css);
+            } else {
+                for (var i = 0; i < pos.length - 1; i++)
+                    //滚动距离t和每个模块可见内容到对象顶端的高度比较，进行切换css
+                    if (t >= pos[i] && t < pos[i + 1]) {
+                        nav.eq(i).addClass(css);
+                    }
+            }
+        });
+        nav.on('click', function () {
+            console.log($(this).index())
+            //点击nav，获取点击的index
+            var i = $(this).index();
+            //语法一：$(selector).animate(styles,speed,easing,callback)
+            //语法二：$(selector).animate(styles,options)
+            //styles	规定产生动画效果的 CSS 样式和值。
+            //8000：是speed
+            $('html, body').animate({'scrollTop': pos[$(this).index() - 1] + 500}, 500);
+        });
+    })();
+ 
+</script>
+</body>
+</html>
